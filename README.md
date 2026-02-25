@@ -19,6 +19,28 @@ AI-powered cattle and buffalo breed classification with image upload and live ca
 - Supabase (edge function for classification)
 - React Router
 
+## AI Algorithms Used
+1. CNN-based image classification (primary)
+   - A custom CNN inference service predicts animal `type`, `breed`, and base model confidence from images.
+
+2. Multimodal LLM vision fallback (secondary)
+   - If CNN is unavailable, low-confidence, or returns unknown, fallback runs:
+     - OpenAI vision model (`OPENAI_MODEL`, default `gpt-4o-mini`)
+     - then Gemini vision model (`GEMINI_MODEL`, default `gemini-2.5-flash`)
+
+3. Confidence calibration algorithm (post-processing)
+   - Final confidence is calibrated using:
+     - model confidence
+     - image quality score (brightness, contrast, sharpness, resolution)
+     - trait reliability score
+     - penalties for warnings and uncertainty indicators (low margin, high entropy)
+
+4. Dataset-aware label matching
+   - Predicted breeds are validated against synced dataset labels using:
+     - exact label matching
+     - fuzzy matching (Levenshtein similarity)
+   - Confidence is adjusted based on match quality.
+
 ## Pages and Routes
 - `/login` Login page (public-only; authenticated users redirect to `/`)
 - `/signup` Signup page (public-only; authenticated users redirect to `/`)
@@ -80,6 +102,22 @@ CNN_TIMEOUT_MS=7000
 UI calls:
 - `POST {VITE_SUPABASE_URL}/functions/v1/classify-animal`
 
+## GitHub and Secrets Safety
+- Never commit real secrets to the repository (`.env`, service role keys, API keys, access tokens).
+- This project ignores secret/local files through `.gitignore`:
+  - `.env`, `.env.*`, `*.env` (except example files)
+  - local virtualenv folders and caches
+  - Supabase local state folders (`supabase/.temp`, `supabase/.branches`)
+- Keep only placeholder/example values in tracked files (for example, `.env.example`).
+
+Before pushing, verify no secrets are staged:
+```bash
+git status --short --ignored
+git ls-files | rg "\\.env($|\\.)"
+```
+
+If a secret was already committed, rotate that secret immediately and rewrite Git history before sharing the repo.
+
 ## Supabase Schema
 Included migrations create the following tables:
 - `breeds`
@@ -123,6 +161,55 @@ CSV body example:
 - `sync-dataset` (dataset upload, JSON/CSV)
 - `get-stats` (counts for UI stats)
 - `save-classification` (store history)
+
+## Main Algorithm (Project + Confidence)
+The core pipeline is implemented in `supabase/functions/classify-animal/index.ts`.
+
+High-level flow:
+1. Validate image data URL and normalize CV metrics (`brightness`, `contrast`, `sharpness`, `width`, `height`).
+2. Load known breed labels from synced dataset tables (`dataset_records`, `breeds`) or built-in fallback labels.
+3. In `auto` mode:
+   - Try CNN inference first.
+   - If result is unknown/low confidence, run LLM vision fallback (OpenAI first, then Gemini).
+4. Enforce dataset-aware breed matching (exact/fuzzy/no-match) and adjust confidence.
+5. Return final classification + `accuracyReports` + practical `extraInfo`.
+
+### Confidence Calibration Formula
+Final confidence is not just model output. It is calibrated using image quality and trait reliability:
+
+```text
+blended = 0.68 * modelConfidence
+        + 0.22 * qualityScore
+        + 0.10 * traitReliabilityScore
+
+warningPenalty = min(20, 3 * warningCount)
+marginPenalty = 7   (if low-margin CNN logits)
+entropyPenalty = 6  (if high normalized entropy)
+
+finalConfidence = clamp( round(blended - warningPenalty - marginPenalty - entropyPenalty), 0, 100 )
+```
+
+Where:
+- `qualityScore` (0..100) is computed from:
+  - brightness closeness to 128 (30%)
+  - contrast normalized by 64 (25%)
+  - sharpness normalized by 60 (30%)
+  - min image dimension normalized by 1024 (15%)
+- `traitReliabilityScore` (0..100) combines:
+  - ratio of available (non-`Unavailable`) traits (70%)
+  - mean trait score normalized to 0..1 (30%)
+
+### Dataset-Match Confidence Adjustment
+After calibration, confidence is adjusted using synced dataset labels:
+- Exact label match: `+4` confidence (capped at 100)
+- Fuzzy match (Levenshtein similarity >= 0.82): multiply confidence by `0.94`
+- Type mismatch vs dataset label: `-5`
+- No dataset match: breed becomes `Unknown`, confidence capped to `35`
+
+### Decision Threshold
+- `CNN_MIN_CONFIDENCE` default is `45`.
+- If final confidence is below threshold, the API appends a low-confidence recommendation.
+- In `auto` mode, low-confidence or unknown CNN results trigger LLM fallback.
 
 ## CNN Service (Starter)
 A starter CNN inference service is included at `services/cnn-inference`.
