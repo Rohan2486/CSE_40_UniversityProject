@@ -16,7 +16,7 @@ export interface ClassificationContext {
 }
 
 export interface ClassificationResponse {
-  type: 'cattle' | 'buffalo';
+  type: 'cattle' | 'buffalo' | 'unidentified';
   breed: string;
   confidence: number;
   modelConfidence?: number;
@@ -270,7 +270,7 @@ export const ImageUpload = ({ onClassify }: ImageUploadProps) => {
 
             {/* Results */}
             {result && (
-              <ClassificationResult result={result} onNewAnalysis={handleClear} />
+              <ClassificationResult result={result} inputImage={image} onNewAnalysis={handleClear} />
             )}
           </motion.div>
         )}

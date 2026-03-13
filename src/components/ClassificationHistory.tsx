@@ -7,7 +7,7 @@ import { supabase } from '@/integrations/supabase/client';
 
 interface HistoryItem {
   id: string;
-  type: 'cattle' | 'buffalo';
+  type: 'cattle' | 'buffalo' | 'unidentified';
   breed: string;
   confidence: number;
   timestamp: Date;

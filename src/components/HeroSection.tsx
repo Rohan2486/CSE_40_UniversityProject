@@ -1,9 +1,11 @@
-﻿import { motion } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { useEffect, useState } from 'react';
 import { Sparkles, ArrowRight, Brain, Zap, Target } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { Button } from './ui/button';
 import heroCattle from '@/assets/hero-cattle.jpg';
 import heroCattleWebp from '@/assets/hero-cattle.webp';
+import { Card3D } from './animations/Motion3D';
 
 interface HeroSectionProps {
   onGetStarted: () => void;
@@ -43,9 +45,9 @@ export const HeroSection = ({ onGetStarted }: HeroSectionProps) => {
 
     fetchStats();
   }, []);
+
   return (
     <section className="relative overflow-hidden py-16 lg:py-24">
-      {/* Background Elements */}
       <div className="absolute inset-0 -z-10">
         <div className="absolute inset-0 opacity-10">
           <picture>
@@ -60,7 +62,6 @@ export const HeroSection = ({ onGetStarted }: HeroSectionProps) => {
 
       <div className="container mx-auto px-4">
         <div className="max-w-4xl mx-auto text-center">
-          {/* Badge */}
           <motion.div
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -70,58 +71,46 @@ export const HeroSection = ({ onGetStarted }: HeroSectionProps) => {
             <span>AI-Powered Classification System</span>
           </motion.div>
 
-          {/* Headline */}
           <motion.h1
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.1 }}
             className="text-4xl md:text-5xl lg:text-6xl font-display font-bold text-foreground leading-tight mb-6"
           >
-            Intelligent{' '}
-            <span className="text-gradient">Cattle & Buffalo</span>{' '}
-            Breed Classification
+            Intelligent <span className="text-gradient">Cattle & Buffalo</span> Breed Classification
           </motion.h1>
 
-          {/* Subheadline */}
           <motion.p
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.2 }}
             className="text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto mb-10"
           >
-            Leverage advanced AI models to automatically classify bovine breeds, 
-            measure body traits, and generate standardized scores.
+            Leverage advanced AI models to automatically classify bovine breeds, measure body traits, and generate standardized scores.
           </motion.p>
 
-          {/* CTA Buttons */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.3 }}
             className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-16"
           >
-            <Button 
-              variant="hero" 
-              size="xl" 
-              onClick={onGetStarted}
-              className="group button-glow"
-            >
+            <Button variant="hero" size="xl" onClick={onGetStarted} className="group button-glow">
               Start Classification
               <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
             </Button>
-            <Button variant="outline" size="xl" className="button-glow">
-              View Documentation
+            <Button asChild variant="outline" size="xl" className="button-glow">
+              <Link to="/documentation">View Documentation</Link>
             </Button>
           </motion.div>
 
-          {/* Visual + Stats */}
           <motion.div
             initial={{ opacity: 0, y: 30 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.35 }}
-            className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-16 items-center"
+            className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-10 items-center"
           >
-            <div className="glass-card p-4 overflow-hidden">
+            <Card3D className="glass-card p-4 overflow-hidden" strength={8}>
               <div className="relative aspect-[16/9] rounded-xl overflow-hidden">
                 <picture>
                   <source srcSet={heroCattleWebp} type="image/webp" />
@@ -138,7 +127,7 @@ export const HeroSection = ({ onGetStarted }: HeroSectionProps) => {
                   Field-ready AI vision
                 </div>
               </div>
-            </div>
+            </Card3D>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               {[
                 { label: 'Breeds', value: stats ? `${stats.breeds}` : '-' },
@@ -152,18 +141,13 @@ export const HeroSection = ({ onGetStarted }: HeroSectionProps) => {
                   transition={{ delay: 0.4 + idx * 0.05 }}
                   className="glass-card p-4 text-center"
                 >
-                  <div className="text-2xl font-display font-bold text-foreground">
-                    {stat.value}
-                  </div>
-                  <div className="text-xs text-muted-foreground">
-                    {stat.label}
-                  </div>
+                  <div className="text-2xl font-display font-bold text-foreground">{stat.value}</div>
+                  <div className="text-xs text-muted-foreground">{stat.label}</div>
                 </motion.div>
               ))}
             </div>
           </motion.div>
 
-          {/* Feature Cards */}
           <motion.div
             initial={{ opacity: 0, y: 30 }}
             animate={{ opacity: 1, y: 0 }}
@@ -199,16 +183,17 @@ interface FeatureCardProps {
 }
 
 const FeatureCard = ({ icon, title, description }: FeatureCardProps) => (
-  <motion.div
-    whileHover={{ y: -4 }}
-    transition={{ type: 'spring', stiffness: 300, damping: 20 }}
-    className="glass-card p-6 text-center transition-transform duration-300"
-  >
-    <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center text-primary mx-auto mb-4">
-      {icon}
-    </div>
-    <h3 className="font-display font-semibold text-foreground mb-2">{title}</h3>
-    <p className="text-sm text-muted-foreground">{description}</p>
-  </motion.div>
+  <Card3D strength={7}>
+    <motion.div
+      whileHover={{ y: -4 }}
+      transition={{ type: 'spring', stiffness: 300, damping: 20 }}
+      className="glass-card p-6 text-center transition-transform duration-300"
+    >
+      <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center text-primary mx-auto mb-4">
+        {icon}
+      </div>
+      <h3 className="font-display font-semibold text-foreground mb-2">{title}</h3>
+      <p className="text-sm text-muted-foreground">{description}</p>
+    </motion.div>
+  </Card3D>
 );
-

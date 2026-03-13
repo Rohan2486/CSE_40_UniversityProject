@@ -17,6 +17,53 @@ type SyncPayload = {
   csv?: string;
 };
 
+const FEATURE_VECTOR_BINS = 32;
+
+const buildFeatureVectorFromBytes = (bytes: Uint8Array) => {
+  const histogram = new Array<number>(FEATURE_VECTOR_BINS).fill(0);
+  if (!bytes.length) return histogram;
+
+  for (const byte of bytes) {
+    const bucket = Math.min(FEATURE_VECTOR_BINS - 1, Math.floor((byte / 256) * FEATURE_VECTOR_BINS));
+    histogram[bucket] += 1;
+  }
+
+  const magnitude = Math.sqrt(histogram.reduce((sum, value) => sum + value * value, 0));
+  if (!Number.isFinite(magnitude) || magnitude === 0) return histogram;
+  return histogram.map((value) => Number((value / magnitude).toFixed(6)));
+};
+
+const readImageUrl = (record: Record<string, unknown>) => {
+  for (const key of ["image_url", "imageUrl", "image_path", "imagePath", "image", "url"]) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim().length > 0) {
+      return value.trim();
+    }
+  }
+  return null;
+};
+
+const buildFeatureVectorFromRecord = async (record: Record<string, unknown>) => {
+  const existing = record.feature_vector ?? record.featureVector ?? record.features;
+  if (Array.isArray(existing)) {
+    const values = existing.map((value) => Number(value)).filter((value) => Number.isFinite(value));
+    if (values.length > 0) return values;
+  }
+
+  const imageUrl = readImageUrl(record);
+  if (!imageUrl) return null;
+
+  try {
+    const response = await fetch(imageUrl);
+    if (!response.ok) return null;
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (!bytes.length) return null;
+    return buildFeatureVectorFromBytes(bytes);
+  } catch (_error) {
+    return null;
+  }
+};
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -85,10 +132,11 @@ serve(async (req) => {
       throw datasetError ?? new Error("Failed to upsert dataset");
     }
 
-    const records = normalizedRecords.map((rec) => ({
+    const records = await Promise.all(normalizedRecords.map(async (rec) => ({
       dataset_id: dataset.id,
       data: rec,
-    }));
+      feature_vector: await buildFeatureVectorFromRecord(rec),
+    })));
 
     const { error: deleteError } = await supabase
       .from("dataset_records")

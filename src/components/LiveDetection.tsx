@@ -4,7 +4,6 @@ import {
   Camera,
   CameraOff,
   Loader2,
-  RefreshCw,
   Pause,
   Play,
 } from 'lucide-react';
@@ -62,6 +61,8 @@ export const LiveDetection = ({ onClassify }: LiveDetectionProps) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const autoCaptureTimerRef = useRef<number | null>(null);
+  const lastFrameSignatureRef = useRef<string | null>(null);
 
   const [isStreaming, setIsStreaming] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
@@ -106,10 +107,15 @@ export const LiveDetection = ({ onClassify }: LiveDetectionProps) => {
       videoRef.current.srcObject = null;
     }
 
-    setIsStreaming(false);
-    setIsPaused(false);
-    setCurrentResult(null);
-    setResultHistory([]);
+      setIsStreaming(false);
+      setIsPaused(false);
+      setCurrentResult(null);
+      setResultHistory([]);
+      lastFrameSignatureRef.current = null;
+      if (autoCaptureTimerRef.current !== null) {
+        window.clearInterval(autoCaptureTimerRef.current);
+        autoCaptureTimerRef.current = null;
+      }
   }, []);
 
   /* ===============================
@@ -152,14 +158,35 @@ export const LiveDetection = ({ onClassify }: LiveDetectionProps) => {
     canvas.height = video.videoHeight;
 
     ctx.drawImage(video, 0, 0);
+    const sampleSize = 32;
+    const sampleCanvas = document.createElement('canvas');
+    sampleCanvas.width = sampleSize;
+    sampleCanvas.height = sampleSize;
+    const sampleCtx = sampleCanvas.getContext('2d');
+    if (!sampleCtx) return;
+    sampleCtx.drawImage(video, 0, 0, sampleSize, sampleSize);
+    const sampled = sampleCtx.getImageData(0, 0, sampleSize, sampleSize).data;
+    let total = 0;
+    const bins: number[] = [];
+    for (let i = 0; i < sampled.length; i += 16) {
+      const value = Math.round((sampled[i] + sampled[i + 1] + sampled[i + 2]) / 3 / 16);
+      bins.push(value);
+      total += value;
+    }
+    const frameSignature = `${Math.round(total / Math.max(1, bins.length))}:${bins.join('-')}`;
+    if (lastFrameSignatureRef.current === frameSignature) {
+      return;
+    }
+    lastFrameSignatureRef.current = frameSignature;
     const imageData = canvas.toDataURL('image/jpeg', 0.85);
 
     setIsAnalyzing(true);
     try {
       const result = await onClassify(imageData, { inferenceMode: 'llm_only' });
       setResultHistory((previous) => {
-        setCurrentResult(result);
-        return [...previous.slice(-4), result];
+        const nextHistory = [...previous.slice(-4), result];
+        setCurrentResult(smoothLiveResult(previous, result));
+        return nextHistory;
       });
     } catch (e) {
       console.error(e);
@@ -190,6 +217,30 @@ export const LiveDetection = ({ onClassify }: LiveDetectionProps) => {
 
     return () => clearTimeout(playTimeout);
   }, [isStreaming]);
+
+  useEffect(() => {
+    if (!isStreaming || isPaused) {
+      if (autoCaptureTimerRef.current !== null) {
+        window.clearInterval(autoCaptureTimerRef.current);
+        autoCaptureTimerRef.current = null;
+      }
+      return;
+    }
+
+    const runCapture = () => {
+      void captureAndAnalyze();
+    };
+
+    runCapture();
+    autoCaptureTimerRef.current = window.setInterval(runCapture, 3000);
+
+    return () => {
+      if (autoCaptureTimerRef.current !== null) {
+        window.clearInterval(autoCaptureTimerRef.current);
+        autoCaptureTimerRef.current = null;
+      }
+    };
+  }, [isStreaming, isPaused, captureAndAnalyze]);
 
   return (
     <div className="space-y-6 animate-rise">
@@ -291,18 +342,9 @@ export const LiveDetection = ({ onClassify }: LiveDetectionProps) => {
           </div>
 
           {isStreaming && (
-            <Button
-              onClick={captureAndAnalyze}
-              disabled={isAnalyzing}
-              className="button-glow"
-            >
-              {isAnalyzing ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <RefreshCw className="w-4 h-4 mr-2" />
-              )}
-              Analyze
-            </Button>
+            <div className="flex items-center text-sm text-muted-foreground">
+              {isPaused ? 'Auto capture paused' : isAnalyzing ? 'Auto capturing...' : 'Auto capture active'}
+            </div>
           )}
         </div>
       </div>
@@ -361,8 +403,27 @@ export const LiveDetection = ({ onClassify }: LiveDetectionProps) => {
                     <span className="text-foreground">Not available</span>
                   )}
                 </p>
+                {currentResult.accuracyReports?.dataset.imageUrl && (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <a
+                      href={currentResult.accuracyReports.dataset.imageUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center rounded-md border border-border bg-background px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+                    >
+                      Open Image
+                    </a>
+                    <a
+                      href={currentResult.accuracyReports.dataset.imageUrl}
+                      download={`${currentResult.accuracyReports.dataset.matchedBreed || 'matched-breed'}.jpg`}
+                      className="inline-flex items-center rounded-md border border-border bg-background px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+                    >
+                      Download Image
+                    </a>
+                  </div>
+                )}
                 <p className="text-xs text-muted-foreground mt-1">
-                  Formula: Similarity = (1 - LevenshteinDistance / maxLength) x 100
+                  Formula: Match % = CosineSimilarity(input image vector, dataset image vector) x 100
                 </p>
                 {currentResult.accuracyReports?.dataset.imageUrl && (
                   <img

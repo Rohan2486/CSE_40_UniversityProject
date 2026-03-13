@@ -4,37 +4,26 @@ import { CheckCircle2, Beef, Info, ArrowRight, Download, Share2, BarChart3, Data
 import { Button } from './ui/button';
 import { ClassificationResponse } from './ImageUpload';
 import { toast } from 'sonner';
-import { supabase } from '@/integrations/supabase/client';
 
 interface ClassificationResultProps {
   result: ClassificationResponse;
+  inputImage?: string | null;
   onNewAnalysis: () => void;
 }
 
-export const ClassificationResult = ({ result, onNewAnalysis }: ClassificationResultProps) => {
+export const ClassificationResult = ({ result, inputImage, onNewAnalysis }: ClassificationResultProps) => {
   type ExtraInfo = NonNullable<ClassificationResponse['extraInfo']>;
-  type VoiceLanguage = 'english' | 'hindi' | 'tamil';
-  type VoiceLocale = 'en-IN' | 'hi-IN' | 'ta-IN';
 
-  const languageOptions: Array<{ value: VoiceLanguage; label: string; locale: VoiceLocale }> = [
-    { value: 'english', label: 'English', locale: 'en-IN' },
-    { value: 'hindi', label: 'Hindi', locale: 'hi-IN' },
-    { value: 'tamil', label: 'Tamil', locale: 'ta-IN' },
-  ];
-
-  const [selectedLanguage, setSelectedLanguage] = useState<VoiceLanguage>('english');
-  const [translatedInfo, setTranslatedInfo] = useState<Partial<Record<VoiceLanguage, ExtraInfo>>>({});
-  const [isTranslating, setIsTranslating] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
-  const [selectedVoiceURI, setSelectedVoiceURI] = useState<string>('');
 
   const modelReport = result.accuracyReports?.model ?? {
     name: 'CNN Inference',
     confidence: result.modelConfidence ?? result.confidence,
     calibratedConfidence: result.confidence,
   };
+  const isUnidentified = result.type === 'unidentified';
   const datasetReport = result.accuracyReports?.dataset ?? {
     name: 'No Match',
     matchedBreed: result.breed ?? 'Unknown',
@@ -47,123 +36,30 @@ export const ClassificationResult = ({ result, onNewAnalysis }: ClassificationRe
     return <Beef className="w-8 h-8" />;
   };
 
-  const baseExtraInfo = result.extraInfo ?? null;
-  const activeExtraInfo = (baseExtraInfo && translatedInfo[selectedLanguage]) || baseExtraInfo;
-  const selectedLocale = languageOptions.find((option) => option.value === selectedLanguage)?.locale ?? 'en-IN';
+  const activeExtraInfo = result.extraInfo ?? null;
+  const englishVoices = availableVoices.filter((voice) => voice.lang.toLowerCase().startsWith('en'));
+  const selectedVoice = englishVoices[0] ?? null;
+  const hasEnglishVoice = englishVoices.length > 0;
+  const roundedModelConfidence = Math.round(modelReport.confidence);
+  const confidenceFormula = roundedModelConfidence === result.confidence
+    ? `Formula: Confidence = round(${modelReport.confidence}%) = ${result.confidence}%`
+    : `Formula: round(${modelReport.confidence}%) = ${roundedModelConfidence}%, then dataset matching adjusts it to ${result.confidence}%`;
 
-  const getVoicesForLanguage = (language: VoiceLanguage) => {
-    const localePrefixByLanguage: Record<VoiceLanguage, string[]> = {
-      english: ['en'],
-      hindi: ['hi'],
-      tamil: ['ta'],
-    };
-    const prefixes = localePrefixByLanguage[language];
-    return availableVoices.filter((voice) => {
-      const lower = voice.lang.toLowerCase();
-      return prefixes.some((prefix) => lower.startsWith(prefix));
-    });
-  };
-
-  const languageVoices = getVoicesForLanguage(selectedLanguage);
-  const hasVoiceForSelectedLanguage = languageVoices.length > 0;
-
-  const speechLabels: Record<VoiceLanguage, {
-    primaryUse: string;
-    mainlyFoundIn: string;
-    climateAdaptation: string;
-    notableTraits: string;
-    careTips: string;
-  }> = {
-    english: {
-      primaryUse: 'Primary use',
-      mainlyFoundIn: 'Mainly found in',
-      climateAdaptation: 'Climate adaptation',
-      notableTraits: 'Notable traits',
-      careTips: 'Care tips',
-    },
-    hindi: {
-      primaryUse: 'मुख्य उपयोग',
-      mainlyFoundIn: 'मुख्य रूप से पाया जाता है',
-      climateAdaptation: 'जलवायु अनुकूलन',
-      notableTraits: 'मुख्य विशेषताएं',
-      careTips: 'देखभाल सुझाव',
-    },
-    tamil: {
-      primaryUse: 'முக்கிய பயன்பாடு',
-      mainlyFoundIn: 'முக்கியமாக காணப்படும் பகுதிகள்',
-      climateAdaptation: 'காலநிலை ஏற்ப்பு',
-      notableTraits: 'குறிப்பிடத்தக்க பண்புகள்',
-      careTips: 'பராமரிப்பு குறிப்புகள்',
-    },
-  };
-
-  const buildSpeechText = (info: ExtraInfo, language: VoiceLanguage) => {
-    const labels = speechLabels[language];
+  const buildSpeechText = (info: ExtraInfo) => {
     return [
       info.summary,
-      `${labels.primaryUse}: ${info.primaryUse}`,
-      `${labels.mainlyFoundIn}: ${info.globalDistribution}`,
-      `${labels.climateAdaptation}: ${info.climateAdaptation}`,
-      `${labels.notableTraits}: ${info.notableTraits.join('. ')}`,
-      `${labels.careTips}: ${info.careTips.join('. ')}`,
+      `Primary use: ${info.primaryUse}`,
+      `Mainly found in: ${info.globalDistribution}`,
+      `Climate adaptation: ${info.climateAdaptation}`,
+      `Notable traits: ${info.notableTraits.join('. ')}`,
+      `Care tips: ${info.careTips.join('. ')}`,
     ].join('. ');
   };
 
-  const fetchTranslation = async (language: VoiceLanguage): Promise<ExtraInfo | null> => {
-    if (!baseExtraInfo) return null;
-    if (language === 'english') return baseExtraInfo;
-    if (translatedInfo[language]) return translatedInfo[language] ?? null;
-
-    setIsTranslating(true);
-    try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const accessToken = sessionData.session?.access_token;
-      const publishableKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
-      const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/translate-extra-info`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'apikey': publishableKey,
-            'Authorization': `Bearer ${accessToken ?? publishableKey}`,
-          },
-          body: JSON.stringify({
-            extraInfo: baseExtraInfo,
-            language,
-          }),
-        },
-      );
-      if (!response.ok) {
-        const errPayload = await response.json().catch(() => null) as { error?: string } | null;
-        throw new Error(errPayload?.error || `Translation request failed (${response.status})`);
-      }
-      const data = await response.json() as { extraInfo?: ExtraInfo; provider?: string };
-      if (data?.extraInfo) {
-        const translated = data.extraInfo as ExtraInfo;
-        setTranslatedInfo((prev) => ({ ...prev, [language]: translated }));
-        if (data.provider !== 'llm') {
-          toast.warning('Translation provider did not return an LLM result.');
-        }
-        return translated;
-      }
-      return null;
-    } catch (error) {
-      console.warn('Translation failed:', error);
-      toast.error('Could not translate extra info for selected language.');
-      return null;
-    } finally {
-      setIsTranslating(false);
-    }
-  };
-
   useEffect(() => {
-    setSelectedLanguage('english');
-    setTranslatedInfo({});
     window.speechSynthesis.cancel();
     setIsSpeaking(false);
     setIsPaused(false);
-    setSelectedVoiceURI('');
   }, [result]);
 
   useEffect(() => {
@@ -179,38 +75,18 @@ export const ClassificationResult = ({ result, onNewAnalysis }: ClassificationRe
     };
   }, []);
 
-  useEffect(() => {
-    const voices = getVoicesForLanguage(selectedLanguage);
-    setSelectedVoiceURI((prev) => {
-      if (prev && voices.some((voice) => voice.voiceURI === prev)) {
-        return prev;
-      }
-      return voices[0]?.voiceURI ?? '';
-    });
-  }, [selectedLanguage, availableVoices]);
-
-  useEffect(() => {
-    if (!baseExtraInfo) return;
-    if (selectedLanguage === 'english') return;
-    if (translatedInfo[selectedLanguage]) return;
-
-    fetchTranslation(selectedLanguage);
-  }, [baseExtraInfo, selectedLanguage, translatedInfo]);
-
   const handleSpeak = async () => {
-    const selectedVoice = availableVoices.find((voice) => voice.voiceURI === selectedVoiceURI);
-    if (!selectedVoice || !hasVoiceForSelectedLanguage) {
-      toast.error(`No ${selectedLanguage} TTS voice found in your OS/browser. Install that language voice first.`);
+    if (!selectedVoice || !hasEnglishVoice) {
+      toast.error('No English TTS voice found in your OS/browser. Install one and refresh the page.');
       return;
     }
 
-    const infoForSpeech = await fetchTranslation(selectedLanguage);
-    if (!infoForSpeech) return;
-    const speechText = buildSpeechText(infoForSpeech, selectedLanguage);
+    if (!activeExtraInfo) return;
+    const speechText = buildSpeechText(activeExtraInfo);
     if (!speechText) return;
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(speechText);
-    utterance.lang = selectedLocale;
+    utterance.lang = 'en-IN';
     utterance.rate = 0.92;
     utterance.pitch = 1;
     utterance.voice = selectedVoice;
@@ -226,7 +102,6 @@ export const ClassificationResult = ({ result, onNewAnalysis }: ClassificationRe
     utterance.onerror = () => {
       setIsSpeaking(false);
       setIsPaused(false);
-      toast.error('Speech playback failed on this device/browser.');
     };
 
     window.speechSynthesis.speak(utterance);
@@ -262,6 +137,9 @@ export const ClassificationResult = ({ result, onNewAnalysis }: ClassificationRe
     return 'bg-muted-foreground';
   };
 
+  const confidenceCircumference = 2 * Math.PI * 42;
+  const confidenceOffset = confidenceCircumference * (1 - result.confidence / 100);
+
   const downloadBlob = (content: string, fileName: string, type: string) => {
     const blob = new Blob([content], { type });
     const url = window.URL.createObjectURL(blob);
@@ -291,40 +169,127 @@ export const ClassificationResult = ({ result, onNewAnalysis }: ClassificationRe
   };
 
   const handleExport = () => {
-    const payload = {
-      type: result.type,
-      breed: result.breed,
-      confidence: result.confidence,
-      model_confidence: modelReport.confidence,
-      calibrated_confidence: modelReport.calibratedConfidence,
-      dataset_name: datasetReport.name,
-      dataset_similarity: datasetReport.similarity,
-      dataset_matched_breed: datasetReport.matchedBreed,
-      dataset_image_url: datasetReport.imageUrl ?? null,
-      traits: result.traits,
-      recommendations: result.recommendations ?? null,
-      exported_at: new Date().toISOString(),
-    };
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const jsonFile = `classification-${result.type}-${stamp}.json`;
-    const csvFile = `classification-${result.type}-${stamp}.csv`;
-    const csvRow = {
-      type: result.type,
-      breed: result.breed,
-      confidence: result.confidence,
-      model_confidence: modelReport.confidence,
-      calibrated_confidence: modelReport.calibratedConfidence,
-      dataset_name: datasetReport.name,
-      dataset_similarity: datasetReport.similarity,
-      dataset_matched_breed: datasetReport.matchedBreed,
-      dataset_image_url: datasetReport.imageUrl ?? '',
-      traits: JSON.stringify(result.traits ?? []),
-      recommendations: result.recommendations ?? '',
-      exported_at: payload.exported_at,
+    const reportWindow = window.open('', '_blank', 'width=960,height=1200');
+    if (!reportWindow) {
+      toast.error('Allow pop-ups to export the PDF report.');
+      return;
+    }
+
+    const traitRows = result.traits
+      .map((trait) => `
+        <tr>
+          <td>${trait.name}</td>
+          <td>${trait.value}</td>
+          <td>${trait.score}/10</td>
+        </tr>
+      `)
+      .join('');
+
+    const recommendations = result.recommendations
+      ? `<section class="card"><h2>Recommendations</h2><p>${result.recommendations}</p></section>`
+      : '';
+
+    const inputImageSection = inputImage
+      ? `
+        <section class="card">
+          <h2>Input Image</h2>
+          <img src="${inputImage}" alt="Input animal" />
+        </section>
+      `
+      : '';
+
+    const matchedImageSection = datasetReport.imageUrl
+      ? `
+        <section class="card">
+          <h2>Matched Dataset Image</h2>
+          <p><strong>Matched breed:</strong> ${datasetReport.matchedBreed}</p>
+          <img src="${datasetReport.imageUrl}" alt="${datasetReport.matchedBreed} dataset image" />
+          <p><strong>Source:</strong> <a href="${datasetReport.imageUrl}">${datasetReport.imageUrl}</a></p>
+        </section>
+      `
+      : `
+        <section class="card">
+          <h2>Matched Dataset Image</h2>
+          <p>No matched dataset image was available.</p>
+        </section>
+      `;
+
+    const html = `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>classification-report-${stamp}</title>
+    <style>
+      body { font-family: Arial, sans-serif; margin: 24px; color: #111827; }
+      h1 { margin: 0 0 8px; font-size: 28px; }
+      h2 { margin: 0 0 12px; font-size: 18px; }
+      p { margin: 4px 0; line-height: 1.5; }
+      .meta { color: #4b5563; margin-bottom: 20px; }
+      .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+      .card { border: 1px solid #d1d5db; border-radius: 12px; padding: 16px; margin-bottom: 16px; break-inside: avoid; }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { border: 1px solid #d1d5db; padding: 8px; text-align: left; font-size: 14px; }
+      th { background: #f3f4f6; }
+      img { width: 100%; max-height: 320px; object-fit: contain; border-radius: 10px; border: 1px solid #e5e7eb; background: #f9fafb; }
+      .badge { display: inline-block; padding: 4px 10px; border-radius: 999px; background: #eef2ff; color: #3730a3; font-size: 12px; font-weight: 600; }
+      @media print {
+        body { margin: 12mm; }
+        .print-note { display: none; }
+      }
+    </style>
+  </head>
+  <body>
+    <p class="print-note">Use "Save as PDF" in the print dialog.</p>
+    <h1>BreedVision AI Report</h1>
+    <p class="meta">Exported at ${new Date().toLocaleString()}</p>
+
+    <div class="grid">
+      <section class="card">
+        <h2>Classification Summary</h2>
+        <p><strong>Type:</strong> ${result.type}</p>
+        <p><strong>Breed:</strong> ${result.breed}</p>
+        <p><strong>Confidence:</strong> ${result.confidence}%</p>
+        <p><strong>Model:</strong> ${modelReport.name}</p>
+      </section>
+      <section class="card">
+        <h2>Dataset Match</h2>
+        <p><strong>Dataset:</strong> ${datasetReport.name}</p>
+        <p><strong>Matched breed:</strong> ${datasetReport.matchedBreed}</p>
+        <p><strong>Similarity:</strong> ${datasetReport.similarity}%</p>
+        <p><strong>Match mode:</strong> <span class="badge">${datasetReport.matchMode}</span></p>
+      </section>
+    </div>
+
+    ${inputImageSection}
+    ${matchedImageSection}
+
+    <section class="card">
+      <h2>Trait Assessment</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Trait</th>
+            <th>Value</th>
+            <th>Score</th>
+          </tr>
+        </thead>
+        <tbody>${traitRows}</tbody>
+      </table>
+    </section>
+
+    ${recommendations}
+  </body>
+</html>`;
+
+    reportWindow.document.open();
+    reportWindow.document.write(html);
+    reportWindow.document.close();
+    reportWindow.focus();
+    reportWindow.onload = () => {
+      reportWindow.print();
     };
-    downloadBlob(JSON.stringify(payload, null, 2), jsonFile, 'application/json');
-    downloadBlob(toCsv([csvRow]), csvFile, 'text/csv');
-    toast.success('Report exported.');
+    toast.success('PDF report opened.');
   };
 
   const handleShare = async () => {
@@ -346,16 +311,13 @@ export const ClassificationResult = ({ result, onNewAnalysis }: ClassificationRe
       animate={{ opacity: 1, y: 0 }}
       className="space-y-6 animate-rise"
     >
-      {/* Success Header */}
       <div className="flex items-center gap-3 text-success">
         <CheckCircle2 className="w-6 h-6" />
         <span className="font-semibold">Analysis Complete</span>
       </div>
 
-      {/* Main Result Card */}
       <div className="glass-card p-6">
         <div className="flex flex-col md:flex-row gap-6">
-          {/* Type & Breed */}
           <div className="flex-1">
             <div className="flex items-center gap-4 mb-4">
               <div className="w-16 h-16 rounded-2xl hero-gradient flex items-center justify-center text-primary-foreground">
@@ -368,13 +330,13 @@ export const ClassificationResult = ({ result, onNewAnalysis }: ClassificationRe
                 </h3>
               </div>
             </div>
-            
+
             <div className="space-y-3">
               <div>
                 <p className="text-sm text-muted-foreground">Breed</p>
                 <p className="text-lg font-semibold text-foreground">{result.breed}</p>
               </div>
-              
+
               <div>
                 <p className="text-sm text-muted-foreground mb-1">Confidence</p>
                 <div className="flex items-center gap-3">
@@ -394,10 +356,8 @@ export const ClassificationResult = ({ result, onNewAnalysis }: ClassificationRe
             </div>
           </div>
 
-          {/* Divider */}
           <div className="hidden md:block w-px bg-border" />
 
-          {/* Traits */}
           <div className="flex-1">
             <h4 className="text-sm text-muted-foreground uppercase tracking-wider mb-4">
               Body Traits Assessment
@@ -435,8 +395,7 @@ export const ClassificationResult = ({ result, onNewAnalysis }: ClassificationRe
         </div>
       </div>
 
-      {/* Accuracy Reports */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div className={`grid grid-cols-1 ${isUnidentified ? '' : 'lg:grid-cols-2'} gap-4`}>
         <motion.div
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
@@ -444,60 +403,116 @@ export const ClassificationResult = ({ result, onNewAnalysis }: ClassificationRe
         >
           <div className="flex items-center gap-2 mb-3">
             <BarChart3 className="w-5 h-5 text-primary" />
-            <h4 className="font-semibold text-foreground">Model Confidence Report</h4>
+            <h4 className="font-semibold text-foreground">Confidence</h4>
           </div>
           <p className="text-sm text-muted-foreground">Model: {modelReport.name}</p>
-          <p className="text-sm text-muted-foreground">Raw confidence: <span className="font-medium text-foreground">{modelReport.confidence}%</span></p>
-          <p className="text-sm text-muted-foreground mb-2">Final confidence: <span className="font-medium text-foreground">{modelReport.calibratedConfidence}%</span></p>
-          <div className="rounded-xl bg-muted/40 p-3 text-xs text-muted-foreground leading-relaxed">
-            Formula (real-time): Final = (Raw x 0.68 + Quality x 0.22 + TraitReliability x 0.10) - Penalties
+          <p className="text-sm text-muted-foreground mb-2">
+            Confidence: <span className="font-medium text-foreground">{result.confidence}%</span>
+          </p>
+          <p className="text-xs text-muted-foreground">
+            {confidenceFormula}
+          </p>
+          <div className="mt-4 flex items-center justify-center">
+            <div className="relative h-28 w-28">
+              <svg className="h-28 w-28 -rotate-90" viewBox="0 0 100 100" aria-hidden="true">
+                <circle
+                  cx="50"
+                  cy="50"
+                  r="42"
+                  className="stroke-muted"
+                  strokeWidth="8"
+                  fill="none"
+                />
+                <motion.circle
+                  cx="50"
+                  cy="50"
+                  r="42"
+                  className="stroke-primary"
+                  strokeWidth="8"
+                  strokeLinecap="round"
+                  fill="none"
+                  initial={{ strokeDashoffset: confidenceCircumference }}
+                  animate={{ strokeDashoffset: confidenceOffset }}
+                  transition={{ duration: 0.8, ease: 'easeOut' }}
+                  strokeDasharray={confidenceCircumference}
+                />
+              </svg>
+              <div className="absolute inset-0 flex flex-col items-center justify-center">
+                <span className={`text-2xl font-bold ${getConfidenceColor(result.confidence)}`}>
+                  {result.confidence}%
+                </span>
+                <span className="text-[11px] uppercase tracking-wider text-muted-foreground">
+                  Confidence
+                </span>
+              </div>
+            </div>
           </div>
         </motion.div>
 
-        <motion.div
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.05 }}
-          className="glass-card p-5"
-        >
-          <div className="flex items-center gap-2 mb-3">
-            <Database className="w-5 h-5 text-primary" />
-            <h4 className="font-semibold text-foreground">Dataset Similarity Report</h4>
-          </div>
-          <p className="text-sm text-muted-foreground">Dataset: <span className="font-medium text-foreground">{datasetReport.name}</span></p>
-          <p className="text-sm text-muted-foreground">Matched breed: <span className="font-medium text-foreground">{datasetReport.matchedBreed}</span></p>
-          <p className="text-sm text-muted-foreground mb-2">Similarity: <span className="font-medium text-foreground">{datasetReport.similarity}%</span> ({datasetReport.matchMode})</p>
-          <p className="text-sm text-muted-foreground break-all">
-            Image URL: {datasetReport.imageUrl ? (
-              <a
-                href={datasetReport.imageUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="text-primary underline underline-offset-2"
-              >
-                {datasetReport.imageUrl}
-              </a>
-            ) : (
-              <span className="text-foreground">Not available</span>
-            )}
-          </p>
-          <div className="rounded-xl bg-muted/40 p-3 text-xs text-muted-foreground leading-relaxed">
-            Formula (real-time): Similarity = (1 - LevenshteinDistance(predictedBreed, datasetBreed) / maxLength) x 100
-          </div>
-          {datasetReport.imageUrl && (
-            <div className="mt-3">
-              <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2">Dataset Image</p>
-              <img
-                src={datasetReport.imageUrl}
-                alt={`${datasetReport.matchedBreed} dataset reference`}
-                className="w-full h-40 object-cover rounded-xl border border-border/50"
-              />
+        {!isUnidentified && (
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.05 }}
+            className="glass-card p-5"
+          >
+            <div className="flex items-center gap-2 mb-3">
+              <Database className="w-5 h-5 text-primary" />
+              <h4 className="font-semibold text-foreground">Dataset Similarity Report</h4>
             </div>
-          )}
-        </motion.div>
+            <p className="text-sm text-muted-foreground">Dataset: <span className="font-medium text-foreground">{datasetReport.name}</span></p>
+            <p className="text-sm text-muted-foreground">Matched breed: <span className="font-medium text-foreground">{datasetReport.matchedBreed}</span></p>
+            <p className="text-sm text-muted-foreground mb-2">Similarity: <span className="font-medium text-foreground">{datasetReport.similarity}%</span> ({datasetReport.matchMode})</p>
+            <p className="text-sm text-muted-foreground break-all">
+              Image URL: {datasetReport.imageUrl ? (
+                <a
+                  href={datasetReport.imageUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-primary underline underline-offset-2"
+                >
+                  {datasetReport.imageUrl}
+                </a>
+              ) : (
+                <span className="text-foreground">Not available</span>
+              )}
+            </p>
+            {datasetReport.imageUrl && (
+              <div className="mt-2 flex flex-wrap gap-2">
+                <a
+                  href={datasetReport.imageUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+                >
+                  Open Image
+                </a>
+                <a
+                  href={datasetReport.imageUrl}
+                  download={`${datasetReport.matchedBreed || 'matched-breed'}.jpg`}
+                  className="inline-flex items-center rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+                >
+                  Download Image
+                </a>
+              </div>
+            )}
+            <div className="rounded-xl bg-muted/40 p-3 text-xs text-muted-foreground leading-relaxed">
+              Formula: Match % = CosineSimilarity(input image vector, dataset image vector) x 100
+            </div>
+            {datasetReport.imageUrl && (
+              <div className="mt-3">
+                <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2">Dataset Image</p>
+                <img
+                  src={datasetReport.imageUrl}
+                  alt={`${datasetReport.matchedBreed} dataset reference`}
+                  className="w-full h-40 object-cover rounded-xl border border-border/50"
+                />
+              </div>
+            )}
+          </motion.div>
+        )}
       </div>
 
-      {/* Recommendations */}
       {result.recommendations && (
         <motion.div
           initial={{ opacity: 0, y: 10 }}
@@ -519,8 +534,7 @@ export const ClassificationResult = ({ result, onNewAnalysis }: ClassificationRe
         </motion.div>
       )}
 
-      {/* Extra Animal Info */}
-      {result.extraInfo && activeExtraInfo && (
+      {!isUnidentified && activeExtraInfo && (
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
@@ -537,32 +551,20 @@ export const ClassificationResult = ({ result, onNewAnalysis }: ClassificationRe
                 <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2">Kiosk Voice Assistant</p>
                 <div className="flex flex-col md:flex-row gap-2 md:items-center">
                   <select
-                    value={selectedLanguage}
-                    onChange={(e) => setSelectedLanguage(e.target.value as VoiceLanguage)}
-                    className="h-10 rounded-lg border border-border bg-background px-3 text-sm"
-                  >
-                    {languageOptions.map((option) => (
-                      <option key={option.value} value={option.value}>{option.label}</option>
-                    ))}
-                  </select>
-                  <select
-                    value={selectedVoiceURI}
-                    onChange={(e) => setSelectedVoiceURI(e.target.value)}
+                    value={selectedVoice?.voiceURI ?? ''}
                     className="h-10 rounded-lg border border-border bg-background px-3 text-sm md:min-w-[240px]"
-                    disabled={!hasVoiceForSelectedLanguage}
+                    disabled
                   >
-                    {hasVoiceForSelectedLanguage ? (
-                      languageVoices.map((voice) => (
-                        <option key={voice.voiceURI} value={voice.voiceURI}>
-                          {voice.name} ({voice.lang})
-                        </option>
-                      ))
+                    {hasEnglishVoice ? (
+                      <option value={selectedVoice?.voiceURI ?? ''}>
+                        {selectedVoice?.name} ({selectedVoice?.lang})
+                      </option>
                     ) : (
-                      <option value="">No installed voice for this language</option>
+                      <option value="">No installed English voice</option>
                     )}
                   </select>
-                  <Button type="button" variant="outline" size="sm" onClick={handleSpeak} disabled={isTranslating}>
-                    {isTranslating ? 'Translating...' : 'Speak'}
+                  <Button type="button" variant="outline" size="sm" onClick={handleSpeak}>
+                    Speak
                   </Button>
                   <Button type="button" variant="outline" size="sm" onClick={handlePauseResume} disabled={!isSpeaking}>
                     {isPaused ? 'Resume' : 'Pause'}
@@ -571,9 +573,9 @@ export const ClassificationResult = ({ result, onNewAnalysis }: ClassificationRe
                     Stop
                   </Button>
                 </div>
-                {!hasVoiceForSelectedLanguage && (
+                {!hasEnglishVoice && (
                   <p className="text-xs text-destructive mt-2">
-                    Install a {selectedLanguage} voice in your OS language settings, then refresh this page.
+                    Install an English voice in your OS language settings, then refresh this page.
                   </p>
                 )}
               </div>
@@ -616,7 +618,6 @@ export const ClassificationResult = ({ result, onNewAnalysis }: ClassificationRe
         </motion.div>
       )}
 
-      {/* Action Buttons */}
       <div className="flex flex-wrap gap-4">
         <Button variant="hero" size="lg" onClick={onNewAnalysis} className="button-glow">
           Analyze Another

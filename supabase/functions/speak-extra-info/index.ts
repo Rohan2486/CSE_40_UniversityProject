@@ -88,7 +88,7 @@ serve(async (req) => {
         voice: OPENAI_TTS_VOICE,
         format: "mp3",
         input: text,
-        instructions: `Speak naturally in ${meta.label} (${meta.locale}) with clear pronunciation for farm operators.`,
+        instructions: `Speak in ${meta.label} (${meta.locale}). Clear, natural, farm-friendly pronunciation.`,
       }),
     });
 

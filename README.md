@@ -1,220 +1,413 @@
-# BreedVision AI (BreedAI)
+# BreedVision AI
 
-AI-powered cattle and buffalo breed classification with image upload and live camera detection. Built with React + Vite, Tailwind, and Supabase edge functions.
+BreedVision AI is a full-stack animal breed classification platform for cattle and buffalo. It combines a React frontend, Supabase auth and edge functions, optional CNN inference, and multimodal LLM fallbacks to deliver upload-based and live-camera breed analysis with saved history.
 
-## Features
-- Auth flow with Supabase (`/login`, `/signup`) and protected home route
-- Sign out action from the home header
-- Image upload classification with confidence scoring
-- Live camera detection and snapshot analysis
-- Per-user classification history (saved and restored on next login)
-- Modern UI with motion effects and glassmorphism styling
-- Privacy and Terms pages
+## What the project does
 
-## Tech Stack
-- React 18 + TypeScript
+- Authenticated users can sign up, log in, classify animals, and review their classification history.
+- Users can upload an image or capture one from a live camera workflow.
+- Each classification can include breed, animal type, confidence, traits, recommendations, and extended breed information.
+- Results can be enriched using synced dataset labels and dataset-derived feature vectors.
+- A public in-app documentation page renders this README at `/documentation`.
+
+## Core capabilities
+
+- Supabase Auth with protected routes
+- Image upload classification
+- Live camera capture and analysis
+- Per-user classification history
+- Realtime scan count updates
+- CNN inference integration
+- OpenAI and Gemini vision fallback support
+- Dataset sync through JSON or CSV
+- Dataset image matching and feature-vector similarity
+- Extra breed profile generation
+- Animated React UI built with Tailwind and shadcn/ui
+
+## Architecture
+
+### Frontend
+
+- React 18
+- TypeScript
 - Vite
-- Tailwind CSS + shadcn/ui
+- Tailwind CSS
+- shadcn/ui
 - Framer Motion
-- Supabase (edge function for classification)
+- TanStack Query
 - React Router
 
-## AI Algorithms Used
-1. CNN-based image classification (primary)
-   - A custom CNN inference service predicts animal `type`, `breed`, and base model confidence from images.
+### Backend and storage
 
-2. Multimodal LLM vision fallback (secondary)
-   - If CNN is unavailable, low-confidence, or returns unknown, fallback runs:
-     - OpenAI vision model (`OPENAI_MODEL`, default `gpt-4o-mini`)
-     - then Gemini vision model (`GEMINI_MODEL`, default `gemini-2.5-flash`)
+- Supabase Auth
+- Supabase Postgres
+- Supabase Storage
+- Supabase Edge Functions
 
-3. Confidence calibration algorithm (post-processing)
-   - Final confidence is calibrated using:
-     - model confidence
-     - image quality score (brightness, contrast, sharpness, resolution)
-     - trait reliability score
-     - penalties for warnings and uncertainty indicators (low margin, high entropy)
+### AI inference stack
 
-4. Dataset-aware label matching
-   - Predicted breeds are validated against synced dataset labels using:
-     - exact label matching
-     - fuzzy matching (Levenshtein similarity)
-   - Confidence is adjusted based on match quality.
+- Optional CNN inference service at `services/cnn-inference`
+- OpenAI vision fallback
+- Gemini vision fallback
+- Dataset-aware breed matching
+- Feature-vector assisted similarity matching
 
-## Pages and Routes
-- `/login` Login page (public-only; authenticated users redirect to `/`)
-- `/signup` Signup page (public-only; authenticated users redirect to `/`)
-- `/` Home, hero, and tabs (protected; unauthenticated users redirect to `/login`)
-- `/privacy` Privacy Policy
-- `/terms` Terms of Service
+## Routes
 
-Tabs on the home page:
+### Public routes
+
+- `/login`
+- `/signup`
+- `/privacy`
+- `/terms`
+- `/documentation`
+- `*` not found page
+
+### Protected route
+
+- `/`
+
+The home experience includes these main sections:
+
 - Upload
 - Live Detection
 - History
 
-## Getting Started
+## How classification works
 
-Install dependencies:
+The main pipeline lives in `supabase/functions/classify-animal/index.ts`.
+
+### High-level flow
+
+1. The frontend captures or uploads an image and sends a data URL to the `classify-animal` edge function.
+2. Computer-vision quality metrics and warnings are passed along with the image.
+3. The edge function loads known breeds from the synced dataset or falls back to built-in breed lists.
+4. Inference runs with CNN support and LLM support depending on mode and availability.
+5. The response is merged with dataset matching logic, including exact image matching and feature-vector similarity where available.
+6. Extra breed information is generated or normalized.
+7. The frontend stores the result in Supabase history and optionally uploads the original image to Supabase Storage.
+
+### Inference modes currently used
+
+- `llm_only`: the frontend currently sends this by default for classification requests
+- `auto`: edge function can run CNN and LLM in parallel and merge or compare results
+
+### Providers
+
+- `cnn`
+- `llm`
+- `fallback`
+
+### Returned result shape
+
+Typical responses can include:
+
+- `type`
+- `breed`
+- `confidence`
+- `modelConfidence`
+- `traits`
+- `recommendations`
+- `provider`
+- `extraInfo`
+- `accuracyReports`
+
+## Dataset-aware intelligence
+
+BreedVision AI is not just a plain classifier. It can use synced datasets to improve outputs.
+
+### Supported dataset features
+
+- Upload dataset records as JSON or CSV
+- Store dataset metadata
+- Store arbitrary source record payloads
+- Add image URLs to dataset entries
+- Generate or persist feature vectors per dataset record
+- Use dataset labels as the effective breed vocabulary for classification
+
+### Feature vectors
+
+Both `classify-animal` and `sync-dataset` use simple histogram-based feature vectors with 32 bins. These vectors are used to support image-level matching and similarity checks when dataset images are available.
+
+### Dataset helper script
+
+The repo includes `scripts/backfill-dataset-images.mjs` to backfill dataset record `image_url` values from Storage object names and optionally generate missing feature vectors.
+
+Example dry run:
+
+```bash
+node scripts/backfill-dataset-images.mjs
+```
+
+Apply updates:
+
+```bash
+node scripts/backfill-dataset-images.mjs --apply
+```
+
+Limit to one dataset:
+
+```bash
+node scripts/backfill-dataset-images.mjs --dataset indian_breeds_v1 --apply
+```
+
+## Repository structure
+
+```text
+.
+|-- services/
+|   `-- cnn-inference/          Optional Python CNN microservice
+|-- scripts/
+|   `-- backfill-dataset-images.mjs
+|-- src/
+|   |-- animations/
+|   |-- components/
+|   |-- hooks/
+|   |-- integrations/
+|   |-- lib/
+|   |-- pages/
+|   `-- utils/
+|-- supabase/
+|   |-- functions/
+|   |-- migrations/
+|   `-- config.toml
+|-- ANIMATIONS.md
+`-- README.md
+```
+
+## Frontend setup
+
+### Requirements
+
+- Node.js 18 or newer recommended
+- npm
+
+### Install dependencies
+
 ```bash
 npm install
 ```
 
-Run the dev server:
+### Start local development
+
 ```bash
 npm run dev
 ```
-Default dev port is `8080`.  
-If port `8080` is busy, Vite automatically switches (for example `8081`) and prints the URL in terminal.
 
-Build for production:
+Vite usually starts on port `8080`, but it may automatically move to another port if needed.
+
+### Build
+
 ```bash
 npm run build
 ```
 
-Preview production build:
+### Preview production build
+
 ```bash
 npm run preview
 ```
 
-Run tests:
+### Run tests
+
 ```bash
 npm run test
 ```
 
-## Environment Variables
-Create a `.env` file at the project root with:
+### Lint
+
 ```bash
-VITE_SUPABASE_URL=your_supabase_project_url
-VITE_SUPABASE_PUBLISHABLE_KEY=your_supabase_anon_or_publishable_key
-SUPABASE_URL=your_supabase_project_url
-SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
+npm run lint
 ```
 
-For `supabase/functions/classify-animal` provider routing:
+## Environment variables
+
+Create a root `.env` file for local development. Keep real secrets only in local env files or secret managers.
+
+### Frontend variables
+
 ```bash
+VITE_SUPABASE_URL=your_supabase_project_url
+VITE_SUPABASE_PUBLISHABLE_KEY=your_supabase_publishable_key
+```
+
+### Local scripts and service access
+
+```bash
+SUPABASE_URL=your_supabase_project_url
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
+DATASET_IMAGE_BUCKET=classification-images
+```
+
+### `classify-animal` edge function secrets
+
+```bash
+PROJECT_URL=https://your-project.supabase.co
+SERVICE_ROLE_KEY=your_service_role_key
+OPENAI_API_KEY=your_openai_api_key
+GEMINI_API_KEY=your_gemini_api_key
+OPENAI_MODEL=gpt-4o-mini
+GEMINI_MODEL=gemini-2.5-flash
 CNN_INFERENCE_URL=https://your-cnn-service/predict
 CNN_INFERENCE_API_KEY=optional_cnn_api_key
 CNN_MIN_CONFIDENCE=45
 CNN_TIMEOUT_MS=7000
+DATASET_CACHE_TTL_MS=300000
+DATASET_IMAGE_BUCKET=classification-images
 ```
 
-UI calls:
-- `POST {VITE_SUPABASE_URL}/functions/v1/classify-animal`
+### Notes
 
-## GitHub and Secrets Safety
-- Never commit real secrets to the repository (`.env`, service role keys, API keys, access tokens).
-- This project ignores secret/local files through `.gitignore`:
-  - `.env`, `.env.*`, `*.env` (except example files)
-  - local virtualenv folders and caches
-  - Supabase local state folders (`supabase/.temp`, `supabase/.branches`)
-- Keep only placeholder/example values in tracked files (for example, `.env.example`).
+- The frontend uses `VITE_SUPABASE_PUBLISHABLE_KEY` for browser requests.
+- Supabase Edge Functions should use service credentials from secret storage, not from committed files.
+- `PROJECT_URL` and `SERVICE_ROLE_KEY` are the preferred secret names for edge functions.
 
-Before pushing, verify no secrets are staged:
+## Supabase local and cloud setup
+
+### Config in repo
+
+`supabase/config.toml` currently enables:
+
+- email signup
+- email confirmation
+
+### Suggested startup flow
+
+1. Create a Supabase project.
+2. Add the frontend environment variables locally.
+3. Apply the SQL migrations.
+4. Deploy the edge functions.
+5. Set edge-function secrets.
+6. Create or sync dataset records.
+7. Configure the storage bucket used for classification images.
+
+### Supabase secrets
+
+Because Supabase CLI has naming restrictions around some `SUPABASE_*` names, this project supports these secret names:
+
 ```bash
-git status --short --ignored
-git ls-files | rg "\\.env($|\\.)"
+supabase secrets set PROJECT_URL="https://your-project.supabase.co"
+supabase secrets set SERVICE_ROLE_KEY="your_service_role_key"
+supabase secrets set OPENAI_API_KEY="your_openai_key"
+supabase secrets set GEMINI_API_KEY="your_gemini_key"
+supabase secrets set CNN_INFERENCE_URL="https://your-cnn-service/predict"
+supabase secrets set CNN_INFERENCE_API_KEY="optional_cnn_api_key"
+supabase secrets set CNN_MIN_CONFIDENCE="45"
+supabase secrets set CNN_TIMEOUT_MS="7000"
+supabase secrets set DATASET_IMAGE_BUCKET="classification-images"
 ```
 
-If a secret was already committed, rotate that secret immediately and rewrite Git history before sharing the repo.
+### Deploy edge functions
 
-## Supabase Schema
-Included migrations create the following tables:
+```bash
+supabase functions deploy classify-animal
+supabase functions deploy save-classification
+supabase functions deploy get-stats
+supabase functions deploy sync-dataset
+supabase functions deploy speak-extra-info
+```
+
+## Database and storage
+
+This repo includes migrations for:
+
 - `breeds`
 - `breed_traits`
 - `datasets`
 - `dataset_records`
 - `classifications`
+- user-related tables
+- dataset feature-vector support
 
-Storage bucket:
-- `classification-images` (public read)
+Storage bucket used by the app:
 
-`classifications.user_id` is used to scope records by authenticated user in the app.
+- `classification-images`
 
-## Dataset Sync (JSON or CSV)
-Edge function: `sync-dataset`
+The frontend uploads classified images to this bucket and stores the public URL in classification history when possible.
 
-JSON body example:
+## Edge functions
+
+### `classify-animal`
+
+Main classification endpoint.
+
+Responsibilities:
+
+- validate input image data
+- normalize CV metrics and warnings
+- load dataset labels
+- run CNN and/or LLM inference
+- perform dataset-aware breed matching
+- use feature vectors for image similarity support
+- generate extra breed information
+- return structured classification output
+
+### `save-classification`
+
+Stores user classification results.
+
+### `get-stats`
+
+Returns statistics for the application.
+
+### `sync-dataset`
+
+Upserts dataset metadata, replaces dataset records, and optionally computes feature vectors from image URLs.
+
+Accepted input modes:
+
+- `records[]` JSON payload
+- CSV string payload
+
+JSON example:
+
 ```json
 {
   "dataset_name": "indian_breeds_v1",
   "source": "manual",
   "meta": { "notes": "optional" },
   "records": [
-    { "breed": "Gir", "type": "cattle" },
-    { "breed": "Murrah", "type": "buffalo" }
+    { "breed": "Gir", "type": "cattle", "image_url": "https://..." },
+    { "breed": "Murrah", "type": "buffalo", "image_url": "https://..." }
   ]
 }
 ```
 
-CSV body example:
+CSV example:
+
 ```json
 {
   "dataset_name": "indian_breeds_v1",
   "format": "csv",
-  "csv": "breed,type\nGir,cattle\nMurrah,buffalo\n"
+  "csv": "breed,type,image_url\nGir,cattle,https://example.com/gir.jpg\nMurrah,buffalo,https://example.com/murrah.jpg\n"
 }
 ```
 
-## Edge Functions
-- `classify-animal` (CNN-first inference with LLM fallback and confidence calibration)
-- `sync-dataset` (dataset upload, JSON/CSV)
-- `get-stats` (counts for UI stats)
-- `save-classification` (store history)
+### `speak-extra-info`
 
-## Main Algorithm (Project + Confidence)
-The core pipeline is implemented in `supabase/functions/classify-animal/index.ts`.
+Speech-oriented function for extra animal information. It expects an OpenAI API key if TTS is enabled.
 
-High-level flow:
-1. Validate image data URL and normalize CV metrics (`brightness`, `contrast`, `sharpness`, `width`, `height`).
-2. Load known breed labels from synced dataset tables (`dataset_records`, `breeds`) or built-in fallback labels.
-3. In `auto` mode:
-   - Try CNN inference first.
-   - If result is unknown/low confidence, run LLM vision fallback (OpenAI first, then Gemini).
-4. Enforce dataset-aware breed matching (exact/fuzzy/no-match) and adjust confidence.
-5. Return final classification + `accuracyReports` + practical `extraInfo`.
+## CNN inference service
 
-### Confidence Calibration Formula
-Final confidence is not just model output. It is calibrated using image quality and trait reliability:
+The optional Python service under `services/cnn-inference` exposes a `POST /predict` endpoint for the Supabase classifier.
+
+### What it expects
+
+- an ONNX model file
+- a label map file
+- optional API key protection
+
+### Important limitation
+
+The repo does not ship the actual trained model or label map. You need to provide:
 
 ```text
-blended = 0.68 * modelConfidence
-        + 0.22 * qualityScore
-        + 0.10 * traitReliabilityScore
-
-warningPenalty = min(20, 3 * warningCount)
-marginPenalty = 7   (if low-margin CNN logits)
-entropyPenalty = 6  (if high normalized entropy)
-
-finalConfidence = clamp( round(blended - warningPenalty - marginPenalty - entropyPenalty), 0, 100 )
+services/cnn-inference/models/breed_cnn.onnx
+services/cnn-inference/models/labels.json
 ```
 
-Where:
-- `qualityScore` (0..100) is computed from:
-  - brightness closeness to 128 (30%)
-  - contrast normalized by 64 (25%)
-  - sharpness normalized by 60 (30%)
-  - min image dimension normalized by 1024 (15%)
-- `traitReliabilityScore` (0..100) combines:
-  - ratio of available (non-`Unavailable`) traits (70%)
-  - mean trait score normalized to 0..1 (30%)
+### Local run
 
-### Dataset-Match Confidence Adjustment
-After calibration, confidence is adjusted using synced dataset labels:
-- Exact label match: `+4` confidence (capped at 100)
-- Fuzzy match (Levenshtein similarity >= 0.82): multiply confidence by `0.94`
-- Type mismatch vs dataset label: `-5`
-- No dataset match: breed becomes `Unknown`, confidence capped to `35`
-
-### Decision Threshold
-- `CNN_MIN_CONFIDENCE` default is `45`.
-- If final confidence is below threshold, the API appends a low-confidence recommendation.
-- In `auto` mode, low-confidence or unknown CNN results trigger LLM fallback.
-
-## CNN Service (Starter)
-A starter CNN inference service is included at `services/cnn-inference`.
-
-Run locally:
 ```bash
 cd services/cnn-inference
 python -m venv venv
@@ -223,44 +416,178 @@ pip install -r requirements.txt
 uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload
 ```
 
-Or from repo root (PowerShell):
+PowerShell helper from the repo root:
+
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\start-inference.ps1
 ```
 
-Then set:
+Then point the edge function to:
+
 ```bash
 CNN_INFERENCE_URL=http://localhost:8001/predict
 ```
 
-Service docs: `services/cnn-inference/README.md`
+### Health check
 
-## Supabase Secrets (CLI)
-Supabase CLI doesn't allow secrets starting with `SUPABASE_`. Use:
 ```bash
-supabase secrets set PROJECT_URL="https://your-project.supabase.co"
-supabase secrets set SERVICE_ROLE_KEY="your_service_role_key"
-supabase secrets set OPENAI_API_KEY="your_openai_key"
+curl http://localhost:8001/health
 ```
 
-## Project Structure
-- `src/components` UI and feature components
-- `src/pages` Route pages
-- `src/assets` Static images (hero)
-- `src/index.css` Tailwind and theme tokens
+If the model is missing, the service can still run but will report that the model is not ready and return unknown predictions so the edge function can fall back.
 
-## Auth and Email Notes
-- Signup uses Supabase Auth `signUp()` with email confirmation redirect to `/login`.
-- Resend confirmation uses Supabase Auth `resend({ type: "signup" })`.
-- If using default Supabase mailer (no custom SMTP), delivery can be rate-limited/delayed.
-- Make sure Supabase Auth settings include your current local URL in:
-  - Site URL (for example `http://localhost:8081`)
-  - Redirect URLs (for example `http://localhost:8081/login`)
+## Authentication flow
 
-## Notes
-- Live camera requires HTTPS or `localhost` in modern browsers.
-- If you want live stats, connect the UI to a real API or Supabase table and update the numbers dynamically.
+- Signup uses Supabase email/password auth
+- Email confirmation is enabled
+- Login and signup pages are public-only
+- The home page is route-protected
+- Sign-out is handled in the frontend through Supabase Auth
+
+### Supabase auth dashboard reminders
+
+Add your local and deployed URLs to:
+
+- Site URL
+- Redirect URLs
+
+Examples:
+
+- `http://localhost:8080`
+- `http://localhost:8080/login`
+
+Use the exact port your local Vite server is running on.
+
+## UI notes
+
+- The app uses lazy-loaded routes and components for smoother navigation.
+- Framer Motion powers page transitions and animated sections.
+- `ANIMATIONS.md` documents the animation layer and supporting hooks/components.
+- The documentation page renders this README directly so documentation stays aligned with the codebase.
+
+## API usage from the frontend
+
+The frontend calls the edge function directly:
+
+```text
+POST {VITE_SUPABASE_URL}/functions/v1/classify-animal
+```
+
+Headers include:
+
+- `Content-Type: application/json`
+- `Authorization: Bearer {VITE_SUPABASE_PUBLISHABLE_KEY}`
+
+After classification, the frontend attempts to:
+
+1. upload the original image to Supabase Storage
+2. save the classification through `save-classification`
+3. fall back to direct table insertion if saving through the function fails
+
+## Secret safety
+
+Do not commit real secrets to GitHub.
+
+### Ignored by `.gitignore`
+
+- `.env`
+- `.env.*`
+- `*.env`
+- local virtual environments
+- Supabase local state folders
+- common cache folders and build outputs
+
+### Safe practice
+
+- Keep real values only in local `.env` files or deployment secret managers.
+- Commit only placeholders and examples.
+- Never hardcode service role keys, OpenAI keys, Gemini keys, or personal access tokens.
+- If a secret is ever committed, rotate it immediately.
+
+### Quick checks before pushing
+
+```bash
+git status --short --ignored
+git ls-files | rg "\.env($|\.)"
+rg -n --hidden --glob '!*.env' --glob '!.git/*' "OPENAI_API_KEY|GEMINI_API_KEY|SERVICE_ROLE_KEY|SUPABASE_SERVICE_ROLE_KEY|ghp_|github_pat_|sk-" .
+```
+
+## Known limitations
+
+- The bundled CNN service is only fully useful after you add trained model artifacts.
+- Camera access depends on browser permissions and usually requires `localhost` or HTTPS.
+- Public URL storage is convenient for demos, but private-storage strategies may be better for sensitive deployments.
+- Classification quality depends heavily on image clarity, angle, lighting, and dataset quality.
+
+## Development notes
+
+- The project includes Vitest test setup.
+- The app uses TypeScript path aliases and Vite-based development.
+- The repo includes both frontend and backend logic, so keep environment separation clear when deploying.
+
+## Mobile app with Expo Go
+
+This repo now also includes a separate Expo client in `mobile/` so you can ship both:
+
+- the existing Vite web app
+- a React Native mobile app for Expo Go
+
+### What the Expo app reuses
+
+- Supabase Auth
+- Supabase Storage
+- Supabase `classifications` table
+- `classify-animal` edge function
+- `save-classification` edge function
+- the same Supabase project and publishable key
+
+### What the Expo app currently includes
+
+- email/password login and signup
+- image upload from the photo library
+- camera capture with Expo Camera
+- classification result display
+- history view backed by the shared database
+- storage upload before saving classification records
+
+### Mobile environment variables
+
+Create `mobile/.env` from `mobile/.env.example`:
+
+```bash
+EXPO_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your_supabase_publishable_key
+```
+
+### Run the mobile app
+
+```bash
+cd mobile
+npm install
+npx expo start
+```
+
+Then scan the QR code with Expo Go on your device.
+
+### Run web and mobile together
+
+Terminal 1:
+
+```bash
+npm run dev
+```
+
+Terminal 2:
+
+```bash
+cd mobile
+npx expo start
+```
+
+Both clients can talk to the same Supabase backend at the same time.
 
 ## Contact
-For questions or support:
+
+For academic or project contact:
+
 `ROHAN.20221CSE0009@PresidencyUniversity.in`

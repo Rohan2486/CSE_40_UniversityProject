@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Header } from '@/components/Header';
 import { HeroSection } from '@/components/HeroSection';
 import { ImageUpload, ClassificationContext, ClassificationResponse } from '@/components/ImageUpload';
+import { SmoothLoader } from '@/components/animations/SmoothLoader';
 import { toast } from 'sonner';
 import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
@@ -116,7 +117,7 @@ const Index = () => {
           imageData,
           cvMetrics: context?.cvMetrics,
           cvWarnings: context?.cvWarnings ?? [],
-          inferenceMode: context?.inferenceMode ?? 'auto',
+          inferenceMode: context?.inferenceMode ?? 'llm_only',
         }),
       }
     );
@@ -138,58 +139,60 @@ const Index = () => {
     }
 
     const result = await response.json();
-    
+
     if (result.confidence > 0) {
       toast.success(`Identified: ${result.breed} (${result.type})`);
     } else {
       toast.warning('Could not identify the animal in the image');
     }
 
-    try {
-      const imageUrl = await uploadImage(imageData);
-      const saveResponse = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/save-classification`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
-          },
-          body: JSON.stringify({
-            image_url: imageUrl,
+    void (async () => {
+      try {
+        const imageUrl = await uploadImage(imageData);
+        const saveResponse = await fetch(
+          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/save-classification`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+            },
+            body: JSON.stringify({
+              image_url: imageUrl,
+              user_id: currentUserId,
+              type: result.type,
+              breed: result.breed,
+              confidence: result.confidence,
+              traits: result.traits,
+              recommendations: result.recommendations,
+            }),
+          }
+        );
+        if (!saveResponse.ok) {
+          const errText = await saveResponse.text();
+          throw new Error(errText || 'Failed to save classification');
+        }
+      } catch (saveError) {
+        console.warn('Failed to save classification:', saveError);
+        try {
+          const { error } = await supabase.from('classifications').insert({
             user_id: currentUserId,
+            image_url: null,
             type: result.type,
             breed: result.breed,
             confidence: result.confidence,
             traits: result.traits,
-            recommendations: result.recommendations,
-          }),
+            recommendations: result.recommendations ?? null,
+          });
+          if (error) {
+            throw error;
+          }
+        } catch (fallbackError) {
+          console.warn('Fallback save failed:', fallbackError);
         }
-      );
-      if (!saveResponse.ok) {
-        const errText = await saveResponse.text();
-        throw new Error(errText || 'Failed to save classification');
       }
-    } catch (saveError) {
-      console.warn('Failed to save classification:', saveError);
-      try {
-        const { error } = await supabase.from('classifications').insert({
-          user_id: currentUserId,
-          image_url: null,
-          type: result.type,
-          breed: result.breed,
-          confidence: result.confidence,
-          traits: result.traits,
-          recommendations: result.recommendations ?? null,
-        });
-        if (error) {
-          throw error;
-        }
-      } catch (fallbackError) {
-        console.warn('Fallback save failed:', fallbackError);
-      }
-    }
-    
+    })();
+
     return result;
   }, [uploadImage, currentUserId]);
 
@@ -201,6 +204,39 @@ const Index = () => {
 
   return (
     <div className="min-h-screen bg-background relative overflow-hidden">
+      <motion.div
+        className="fixed inset-0 -z-10"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.8 }}
+      >
+        <motion.div
+          className="absolute top-20 right-20 w-72 h-72 bg-primary/5 rounded-full blur-3xl"
+          animate={{
+            y: [0, 40, 0],
+            x: [0, 20, 0],
+          }}
+          transition={{
+            duration: 8,
+            repeat: Infinity,
+            ease: 'easeInOut',
+          }}
+        />
+        <motion.div
+          className="absolute bottom-40 left-10 w-96 h-96 bg-purple-500/5 rounded-full blur-3xl"
+          animate={{
+            y: [0, -40, 0],
+            x: [0, -20, 0],
+          }}
+          transition={{
+            duration: 10,
+            repeat: Infinity,
+            ease: 'easeInOut',
+            delay: 1,
+          }}
+        />
+      </motion.div>
+
       <div className="pointer-events-none absolute inset-0 ambient-grid opacity-70" />
       <Header
         activeTab={activeTab}
@@ -248,25 +284,48 @@ const Index = () => {
                     exit={{ opacity: 0, x: 20 }}
                   >
                     <div className="max-w-4xl mx-auto">
-                      <div className="mb-8">
-                        <h2 className="text-3xl font-display font-bold text-foreground mb-2">
+                      <motion.div
+                        className="mb-8"
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: 0.2 }}
+                      >
+                        <motion.h2
+                          className="text-4xl font-display font-bold text-foreground mb-2 bg-gradient-to-r from-primary to-purple-600 bg-clip-text text-transparent"
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          transition={{ delay: 0.3 }}
+                        >
                           Upload Image
-                        </h2>
-                        <p className="text-muted-foreground">
+                        </motion.h2>
+                        <motion.p
+                          className="text-muted-foreground"
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          transition={{ delay: 0.4 }}
+                        >
                           Upload a clear image of a cattle or buffalo for AI-powered breed classification
-                        </p>
-                        <div className="flex flex-wrap items-center gap-2 mt-4">
-                          <span className="px-3 py-1 rounded-full bg-secondary text-xs text-foreground">
-                            JPG/PNG Supported
-                          </span>
-                          <span className="px-3 py-1 rounded-full bg-secondary text-xs text-foreground">
-                            Max 10MB
-                          </span>
-                          <span className="px-3 py-1 rounded-full bg-secondary text-xs text-foreground">
-                            Avg Result &lt; 2s
-                          </span>
-                        </div>
-                      </div>
+                        </motion.p>
+                        <motion.div
+                          className="flex flex-wrap items-center gap-2 mt-4"
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          transition={{ delay: 0.5, staggerChildren: 0.1 }}
+                        >
+                          {['JPG/PNG Supported', 'Max 10MB', 'Avg Result < 2s'].map((badge, i) => (
+                            <motion.span
+                              key={i}
+                              className="px-3 py-1 rounded-full bg-secondary text-xs text-foreground"
+                              initial={{ opacity: 0, scale: 0.8 }}
+                              animate={{ opacity: 1, scale: 1 }}
+                              transition={{ delay: 0.5 + i * 0.1 }}
+                              whileHover={{ scale: 1.05 }}
+                            >
+                              {badge}
+                            </motion.span>
+                          ))}
+                        </motion.div>
+                      </motion.div>
                       <ImageUpload onClassify={classifyImage} />
                     </div>
                   </motion.div>
@@ -280,26 +339,49 @@ const Index = () => {
                     exit={{ opacity: 0, x: 20 }}
                   >
                     <div className="max-w-4xl mx-auto">
-                      <div className="mb-8">
-                        <h2 className="text-3xl font-display font-bold text-foreground mb-2">
+                      <motion.div
+                        className="mb-8"
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: 0.2 }}
+                      >
+                        <motion.h2
+                          className="text-4xl font-display font-bold text-foreground mb-2 bg-gradient-to-r from-primary to-purple-600 bg-clip-text text-transparent"
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          transition={{ delay: 0.3 }}
+                        >
                           Live Detection
-                        </h2>
-                        <p className="text-muted-foreground">
+                        </motion.h2>
+                        <motion.p
+                          className="text-muted-foreground"
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          transition={{ delay: 0.4 }}
+                        >
                           Use your camera for real-time breed detection and classification
-                        </p>
-                        <div className="flex flex-wrap items-center gap-2 mt-4">
-                          <span className="px-3 py-1 rounded-full bg-secondary text-xs text-foreground">
-                            Low Latency
-                          </span>
-                          <span className="px-3 py-1 rounded-full bg-secondary text-xs text-foreground">
-                            HD Preview
-                          </span>
-                          <span className="px-3 py-1 rounded-full bg-secondary text-xs text-foreground">
-                            Instant Results
-                          </span>
-                        </div>
-                      </div>
-                      <Suspense fallback={<div className="text-sm text-muted-foreground">Loading live detection...</div>}>
+                        </motion.p>
+                        <motion.div
+                          className="flex flex-wrap items-center gap-2 mt-4"
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          transition={{ delay: 0.5, staggerChildren: 0.1 }}
+                        >
+                          {['Low Latency', 'HD Preview', 'Instant Results'].map((badge, i) => (
+                            <motion.span
+                              key={i}
+                              className="px-3 py-1 rounded-full bg-secondary text-xs text-foreground"
+                              initial={{ opacity: 0, scale: 0.8 }}
+                              animate={{ opacity: 1, scale: 1 }}
+                              transition={{ delay: 0.5 + i * 0.1 }}
+                              whileHover={{ scale: 1.05 }}
+                            >
+                              {badge}
+                            </motion.span>
+                          ))}
+                        </motion.div>
+                      </motion.div>
+                      <Suspense fallback={<SmoothLoader size="sm" message="Loading live detection..." />}>
                         <LiveDetection onClassify={classifyImage} />
                       </Suspense>
                     </div>
@@ -314,26 +396,49 @@ const Index = () => {
                     exit={{ opacity: 0, x: 20 }}
                   >
                   <div className="max-w-5xl mx-auto">
-                    <div className="mb-6">
-                      <h2 className="text-3xl font-display font-bold text-foreground mb-2">
+                    <motion.div
+                      className="mb-6"
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: 0.2 }}
+                    >
+                      <motion.h2
+                        className="text-4xl font-display font-bold text-foreground mb-2 bg-gradient-to-r from-primary to-purple-600 bg-clip-text text-transparent"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        transition={{ delay: 0.3 }}
+                      >
                         Classification History
-                      </h2>
-                      <p className="text-muted-foreground">
+                      </motion.h2>
+                      <motion.p
+                        className="text-muted-foreground"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        transition={{ delay: 0.4 }}
+                      >
                         Review your recent classifications and insights
-                      </p>
-                      <div className="flex flex-wrap items-center gap-2 mt-4">
-                        <span className="px-3 py-1 rounded-full bg-secondary text-xs text-foreground">
-                          Recent Scans
-                        </span>
-                        <span className="px-3 py-1 rounded-full bg-secondary text-xs text-foreground">
-                          Export-Ready
-                        </span>
-                        <span className="px-3 py-1 rounded-full bg-secondary text-xs text-foreground">
-                          Secure Storage
-                        </span>
-                      </div>
-                    </div>
-                    <Suspense fallback={<div className="text-sm text-muted-foreground">Loading history...</div>}>
+                      </motion.p>
+                      <motion.div
+                        className="flex flex-wrap items-center gap-2 mt-4"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        transition={{ delay: 0.5, staggerChildren: 0.1 }}
+                      >
+                        {['Recent Scans', 'Export-Ready', 'Secure Storage'].map((badge, i) => (
+                          <motion.span
+                            key={i}
+                            className="px-3 py-1 rounded-full bg-secondary text-xs text-foreground"
+                            initial={{ opacity: 0, scale: 0.8 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            transition={{ delay: 0.5 + i * 0.1 }}
+                            whileHover={{ scale: 1.05 }}
+                          >
+                            {badge}
+                          </motion.span>
+                        ))}
+                      </motion.div>
+                    </motion.div>
+                    <Suspense fallback={<SmoothLoader size="sm" message="Loading history..." />}>
                       <ClassificationHistory userId={currentUserId} />
                     </Suspense>
                   </div>
@@ -346,45 +451,65 @@ const Index = () => {
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-border bg-card/50 py-8 mt-auto">
+      <motion.footer
+        className="border-t border-border bg-card/50 py-8 mt-auto"
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.6 }}
+      >
         <div className="container mx-auto px-4">
           <div className="flex flex-col md:flex-row items-center justify-between gap-4">
-            <div className="text-center md:text-left">
+            <motion.div
+              className="text-center md:text-left"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.7 }}
+            >
               <p className="text-sm text-muted-foreground">
                 Developed by CSE_40
               </p>
               <p className="text-xs text-muted-foreground/70 mt-1">
                 AI-powered Animal Type Classification System
               </p>
-            </div>
-            <div className="flex items-center gap-4 text-sm text-muted-foreground">
-              <Link
-                to="/privacy"
-                className="hover:text-foreground transition-colors"
-                title="View Privacy Policy"
-              >
-                Privacy Policy
-              </Link>
+            </motion.div>
+            <motion.div
+              className="flex items-center gap-4 text-sm text-muted-foreground"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.8 }}
+            >
+              <motion.div whileHover={{ color: '#fff' }} transition={{ duration: 0.2 }}>
+                <Link
+                  to="/privacy"
+                  className="hover:text-foreground transition-colors"
+                  title="View Privacy Policy"
+                >
+                  Privacy Policy
+                </Link>
+              </motion.div>
               <span>&bull;</span>
-              <Link
-                to="/terms"
-                className="hover:text-foreground transition-colors"
-                title="View Terms of Service"
-              >
-                Terms of Service
-              </Link>
+              <motion.div whileHover={{ color: '#fff' }} transition={{ duration: 0.2 }}>
+                <Link
+                  to="/terms"
+                  className="hover:text-foreground transition-colors"
+                  title="View Terms of Service"
+                >
+                  Terms of Service
+                </Link>
+              </motion.div>
               <span>&bull;</span>
-              <a
+              <motion.a
                 href="mailto:ROHAN.20221CSE0009@PresidencyUniversity.in"
                 className="hover:text-foreground transition-colors"
                 title="Email us"
+                whileHover={{ scale: 1.05 }}
               >
                 Contact
-              </a>
-            </div>
+              </motion.a>
+            </motion.div>
           </div>
         </div>
-      </footer>
+      </motion.footer>
     </div>
   );
 };
