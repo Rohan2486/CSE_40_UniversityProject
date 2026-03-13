@@ -532,6 +532,17 @@ This repo now also includes a separate Expo client in `mobile/` so you can ship 
 - the existing Vite web app
 - a React Native mobile app for Expo Go
 
+### Mobile stack
+
+- Expo SDK 54
+- React Native 0.81.5
+- React 19.1.0
+- Expo Camera
+- Expo Image Picker
+- Supabase JS
+
+This SDK 54 setup was chosen specifically to keep the mobile app compatible with Expo Go.
+
 ### What the Expo app reuses
 
 - Supabase Auth
@@ -549,6 +560,7 @@ This repo now also includes a separate Expo client in `mobile/` so you can ship 
 - classification result display
 - history view backed by the shared database
 - storage upload before saving classification records
+- image file handling through `expo-file-system/legacy` for compatibility with the current implementation
 
 ### Mobile environment variables
 
@@ -564,10 +576,12 @@ EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your_supabase_publishable_key
 ```bash
 cd mobile
 npm install
-npx expo start
+npx expo start -c
 ```
 
 Then scan the QR code with Expo Go on your device.
+
+If Expo Go was previously opened against an older SDK build, fully close Expo Go first and then rescan the fresh QR code after starting with `-c`.
 
 ### Run web and mobile together
 
@@ -581,7 +595,7 @@ Terminal 2:
 
 ```bash
 cd mobile
-npx expo start
+npx expo start -c
 ```
 
 Both clients can talk to the same Supabase backend at the same time.
