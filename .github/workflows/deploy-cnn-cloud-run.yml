@@ -1,0 +1,60 @@
+name: Deploy CNN Service To Cloud Run
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "services/cnn-inference/**"
+      - ".github/workflows/deploy-cnn-cloud-run.yml"
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      GAR_LOCATION: ${{ secrets.GCP_REGION }}
+      GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+      REPOSITORY: ${{ secrets.GAR_REPOSITORY }}
+      SERVICE: ${{ secrets.CNN_CLOUD_RUN_SERVICE }}
+      IMAGE: breedvision-cnn
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker auth
+        run: gcloud auth configure-docker "${GAR_LOCATION}-docker.pkg.dev"
+
+      - name: Build image
+        run: |
+          docker build \
+            -t "${GAR_LOCATION}-docker.pkg.dev/${GCP_PROJECT_ID}/${REPOSITORY}/${IMAGE}:${GITHUB_SHA}" \
+            services/cnn-inference
+
+      - name: Push image
+        run: |
+          docker push \
+            "${GAR_LOCATION}-docker.pkg.dev/${GCP_PROJECT_ID}/${REPOSITORY}/${IMAGE}:${GITHUB_SHA}"
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy "${SERVICE}" \
+            --image "${GAR_LOCATION}-docker.pkg.dev/${GCP_PROJECT_ID}/${REPOSITORY}/${IMAGE}:${GITHUB_SHA}" \
+            --project "${GCP_PROJECT_ID}" \
+            --region "${GAR_LOCATION}" \
+            --platform managed \
+            --allow-unauthenticated \
+            --port 8001 \
+            --set-env-vars "CNN_MODEL_PATH=/app/models/breed_cnn.onnx,CNN_LABEL_MAP_PATH=/app/models/labels.json,CNN_INPUT_SIZE=224,CNN_SOFTMAX_TEMP=1.0,CNN_INFERENCE_API_KEY=${{ secrets.CNN_INFERENCE_API_KEY }}"

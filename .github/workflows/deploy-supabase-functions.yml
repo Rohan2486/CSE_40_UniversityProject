@@ -1,0 +1,49 @@
+name: Deploy Supabase Edge Functions
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "supabase/functions/**"
+      - "supabase/config.toml"
+      - ".github/workflows/deploy-supabase-functions.yml"
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Link Supabase project
+        run: supabase link --project-ref "$PROJECT_ID"
+
+      - name: Push function secrets
+        run: |
+          supabase secrets set \
+            PROJECT_URL="${{ secrets.PROJECT_URL }}" \
+            SERVICE_ROLE_KEY="${{ secrets.SERVICE_ROLE_KEY }}" \
+            OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}" \
+            GEMINI_API_KEY="${{ secrets.GEMINI_API_KEY }}" \
+            OPENAI_MODEL="${{ secrets.OPENAI_MODEL }}" \
+            GEMINI_MODEL="${{ secrets.GEMINI_MODEL }}" \
+            CNN_INFERENCE_URL="${{ secrets.CNN_INFERENCE_URL }}" \
+            CNN_INFERENCE_API_KEY="${{ secrets.CNN_INFERENCE_API_KEY }}" \
+            CNN_MIN_CONFIDENCE="${{ secrets.CNN_MIN_CONFIDENCE }}" \
+            CNN_TIMEOUT_MS="${{ secrets.CNN_TIMEOUT_MS }}" \
+            DATASET_CACHE_TTL_MS="${{ secrets.DATASET_CACHE_TTL_MS }}" \
+            DATASET_IMAGE_BUCKET="${{ secrets.DATASET_IMAGE_BUCKET }}"
+
+      - name: Deploy all edge functions
+        run: supabase functions deploy

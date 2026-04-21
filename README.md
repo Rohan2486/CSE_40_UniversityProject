@@ -202,6 +202,186 @@ Vite usually starts on port `8080`, but it may automatically move to another por
 npm run build
 ```
 
+## Deploy to Netlify
+
+Netlify is a good fit for the React frontend in this repo.
+
+What Netlify will host:
+
+- the Vite app in `src/`
+- static assets from `public/`
+- the production build output in `dist/`
+
+What Netlify will not host directly:
+
+- Supabase Edge Functions in `supabase/functions/`
+- the Python CNN inference service in `services/cnn-inference/`
+
+Those backend pieces should stay deployed on Supabase and your Python hosting provider, while the frontend talks to them through environment variables.
+
+### Included Netlify config
+
+This repo includes `netlify.toml` with:
+
+- build command: `npm run build`
+- publish directory: `dist`
+- SPA redirect: all routes rewrite to `/index.html`
+
+The redirect is required because the app uses `BrowserRouter` with routes like `/login`, `/signup`, and `/documentation`.
+
+### Netlify site settings
+
+If you connect this Git repo to Netlify, use these values:
+
+- Build command: `npm run build`
+- Publish directory: `dist`
+- Node version: `18` or newer recommended
+
+### Netlify environment variables
+
+Add these in Netlify under Site configuration -> Environment variables:
+
+```bash
+VITE_SUPABASE_URL=your_supabase_project_url
+VITE_SUPABASE_PUBLISHABLE_KEY=your_supabase_publishable_key
+```
+
+If your Supabase project and edge functions are already live, those two variables are the main frontend requirements.
+
+### Deploy flow
+
+1. Push this repo to GitHub.
+2. In Netlify, choose "Add new site" -> "Import an existing project".
+3. Select the repository.
+4. Confirm the build command is `npm run build` and the publish directory is `dist`.
+5. Add the required `VITE_` environment variables.
+6. Deploy the site.
+
+### Optional custom domain
+
+After the first deploy, you can add your own domain in Netlify and keep Supabase on its own project domain.
+
+## Full production deployment
+
+The production setup for this repo is split across three services:
+
+- Netlify for the frontend
+- Supabase for database, auth, storage, and Edge Functions
+- Cloud Run or another Python host for `services/cnn-inference`
+
+Netlify should not be used as the host for the Supabase Edge Functions or the long-running Python CNN API. Netlify’s current function runtime is Node.js-based, while the CNN service in this repo is a FastAPI container.
+
+### Deploy Supabase Edge Functions
+
+Install and authenticate the Supabase CLI:
+
+```bash
+supabase login
+supabase link --project-ref your-project-id
+```
+
+Deploy every function in `supabase/functions/`:
+
+```bash
+supabase functions deploy
+```
+
+Or deploy them individually:
+
+```bash
+supabase functions deploy classify-animal
+supabase functions deploy save-classification
+supabase functions deploy get-stats
+supabase functions deploy sync-dataset
+supabase functions deploy speak-extra-info
+```
+
+Set the required secrets before deploy:
+
+```bash
+supabase secrets set PROJECT_URL="https://your-project.supabase.co"
+supabase secrets set SERVICE_ROLE_KEY="your_service_role_key"
+supabase secrets set OPENAI_API_KEY="your_openai_key"
+supabase secrets set GEMINI_API_KEY="your_gemini_key"
+supabase secrets set OPENAI_MODEL="gpt-4o-mini"
+supabase secrets set GEMINI_MODEL="gemini-2.5-flash"
+supabase secrets set CNN_INFERENCE_URL="https://your-cnn-host/predict"
+supabase secrets set CNN_INFERENCE_API_KEY="optional_cnn_api_key"
+supabase secrets set CNN_MIN_CONFIDENCE="45"
+supabase secrets set CNN_TIMEOUT_MS="7000"
+supabase secrets set DATASET_CACHE_TTL_MS="300000"
+supabase secrets set DATASET_IMAGE_BUCKET="classification-images"
+```
+
+### GitHub Actions for Supabase deploys
+
+This repo includes `.github/workflows/deploy-supabase-functions.yml` to deploy all Edge Functions automatically on pushes to `main`.
+
+Add these GitHub repository secrets:
+
+- `SUPABASE_ACCESS_TOKEN`
+- `SUPABASE_DB_PASSWORD`
+- `SUPABASE_PROJECT_ID`
+- `PROJECT_URL`
+- `SERVICE_ROLE_KEY`
+- `OPENAI_API_KEY`
+- `GEMINI_API_KEY`
+- `OPENAI_MODEL`
+- `GEMINI_MODEL`
+- `CNN_INFERENCE_URL`
+- `CNN_INFERENCE_API_KEY`
+- `CNN_MIN_CONFIDENCE`
+- `CNN_TIMEOUT_MS`
+- `DATASET_CACHE_TTL_MS`
+- `DATASET_IMAGE_BUCKET`
+
+### Deploy the Python CNN service
+
+The CNN service is a separate FastAPI app in `services/cnn-inference/` and should be deployed as a container.
+
+Before public deploy, add these files:
+
+```text
+services/cnn-inference/models/breed_cnn.onnx
+services/cnn-inference/models/labels.json
+```
+
+Build locally:
+
+```bash
+docker build -t breedvision-cnn ./services/cnn-inference
+```
+
+Run locally:
+
+```bash
+docker run --rm -p 8001:8001 ^
+  -e CNN_INFERENCE_API_KEY=your_optional_key ^
+  breedvision-cnn
+```
+
+### GitHub Actions for Cloud Run deploys
+
+This repo includes `.github/workflows/deploy-cnn-cloud-run.yml` as a Cloud Run deployment template for the CNN service.
+
+Add these GitHub repository secrets:
+
+- `GCP_PROJECT_ID`
+- `GCP_REGION`
+- `GAR_REPOSITORY`
+- `CNN_CLOUD_RUN_SERVICE`
+- `GCP_WORKLOAD_IDENTITY_PROVIDER`
+- `GCP_SERVICE_ACCOUNT`
+- `CNN_INFERENCE_API_KEY`
+
+After the CNN service is deployed, copy its public `/predict` URL into:
+
+```bash
+CNN_INFERENCE_URL=https://your-cloud-run-service/predict
+```
+
+Then redeploy the Supabase functions so `classify-animal` picks up the new CNN endpoint.
+
 ### Preview production build
 
 ```bash
